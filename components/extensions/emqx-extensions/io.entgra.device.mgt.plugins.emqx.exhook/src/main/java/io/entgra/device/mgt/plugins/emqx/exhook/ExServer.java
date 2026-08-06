@@ -48,6 +48,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -58,6 +59,7 @@ public class ExServer {
 
     private static Map<String, String> accessTokenMap = new ConcurrentHashMap<>();
     private static Map<String, String> authorizedScopeMap = new ConcurrentHashMap<>();
+    private static Set<String> trustedMqttClientIds = ConcurrentHashMap.newKeySet();
     private Server server;
     private final ExServerUtilityService utilityService;
 
@@ -111,9 +113,11 @@ public class ExServer {
         }
 
         private final ExServerUtilityService utilityService;
+        private final TrustedMqttCredentials trustedMqttCredentials;
 
         public HookProviderImpl(ExServerUtilityService utilityService) {
             this.utilityService = utilityService;
+            this.trustedMqttCredentials = utilityService.getTrustedMqttCredentials();
         }
 
         @Override
@@ -223,6 +227,7 @@ public class ExServer {
         public void onClientDisconnected(ClientDisconnectedRequest request, StreamObserver<EmptySuccess> responseObserver) {
             logger.info("onClientDisconnected -----------------------------");
             DEBUG("onClientDisconnected", request);
+            trustedMqttClientIds.remove(request.getClientinfo().getClientid());
             EmptySuccess reply = EmptySuccess.newBuilder().build();
             responseObserver.onNext(reply);
             responseObserver.onCompleted();
@@ -241,6 +246,15 @@ public class ExServer {
                     throw Status.INVALID_ARGUMENT
                             .withDescription("Client ID is missing in the request")
                             .asRuntimeException();
+                }
+
+                // Reset a previous session's trust before evaluating this new connection. This prevents a
+                // re-used client ID from inheriting trusted-client ACL privileges.
+                trustedMqttClientIds.remove(clientId);
+                if (trustedMqttCredentials.matches(username, password)) {
+                    trustedMqttClientIds.add(clientId);
+                    respondAuthenticationSuccess(responseObserver);
+                    return;
                 }
 
                 if (StringUtils.isEmpty(username) && StringUtils.isEmpty(password)) {
@@ -358,6 +372,10 @@ public class ExServer {
                 }
                 String topic = request.getTopic();
                 ClientCheckAclRequest.AclReqType aclType = request.getType();
+                if (isTrustedMqttClient(clientId, request.getClientinfo().getUsername())) {
+                    respondAclSuccess(responseObserver);
+                    return;
+                }
                 String accessToken = accessTokenMap.get(clientId);
                 if (StringUtils.isEmpty(accessToken)) {
                     throw Status.PERMISSION_DENIED
@@ -488,6 +506,7 @@ public class ExServer {
         public void onSessionTerminated(SessionTerminatedRequest request, StreamObserver<EmptySuccess> responseObserver) {
             DEBUG("onSessionTerminated", request);
 
+            trustedMqttClientIds.remove(request.getClientinfo().getClientid());
             String accessToken = accessTokenMap.get(request.getClientinfo().getClientid());
             if (!StringUtils.isEmpty(accessToken)) {
                 String scopeString = authorizedScopeMap.get(accessToken);
@@ -608,6 +627,28 @@ public class ExServer {
                 logger.error(msg, e);
                 observer.onError(Status.INTERNAL.withDescription(msg).withCause(e).asRuntimeException());
             }
+        }
+
+        private boolean isTrustedMqttClient(String clientId, String username) {
+            return trustedMqttClientIds.contains(clientId) && trustedMqttCredentials.hasUsername(username);
+        }
+
+        private void respondAuthenticationSuccess(StreamObserver<ValuedResponse> responseObserver) {
+            ValuedResponse reply = ValuedResponse.newBuilder()
+                    .setBoolResult(true)
+                    .setType(ValuedResponse.ResponsedType.STOP_AND_RETURN)
+                    .build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
+        }
+
+        private void respondAclSuccess(StreamObserver<ValuedResponse> responseObserver) {
+            ValuedResponse reply = ValuedResponse.newBuilder()
+                    .setBoolResult(true)
+                    .setType(ValuedResponse.ResponsedType.STOP_AND_RETURN)
+                    .build();
+            responseObserver.onNext(reply);
+            responseObserver.onCompleted();
         }
     }
 

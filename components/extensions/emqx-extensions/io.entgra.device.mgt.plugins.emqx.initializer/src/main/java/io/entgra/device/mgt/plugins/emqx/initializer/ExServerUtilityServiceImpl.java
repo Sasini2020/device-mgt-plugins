@@ -19,17 +19,25 @@ package io.entgra.device.mgt.plugins.emqx.initializer;
 
 import io.entgra.device.mgt.core.device.mgt.core.config.keymanager.KeyManagerConfigurations;
 import io.entgra.device.mgt.core.device.mgt.core.service.DeviceManagementProviderService;
+import io.entgra.device.mgt.plugins.emqx.exhook.TrustedMqttCredentials;
 import io.entgra.device.mgt.plugins.emqx.exhook.ExServerUtilityService;
 
 public class ExServerUtilityServiceImpl implements ExServerUtilityService {
 
     private final DeviceManagementProviderService deviceManagementProviderService;
+    private final TrustedMqttCredentials trustedMqttCredentials;
 
     public ExServerUtilityServiceImpl(DeviceManagementProviderService deviceManagementProviderService) {
         this.deviceManagementProviderService = deviceManagementProviderService;
+        this.trustedMqttCredentials = TrustedMqttCredentials.load();
     }
     @Override
     public KeyManagerConfigurations getKeyManagerConfigurations() {
         return deviceManagementProviderService.getDeviceManagementConfig().getKeyManagerConfigurations();
+    }
+
+    @Override
+    public TrustedMqttCredentials getTrustedMqttCredentials() {
+        return trustedMqttCredentials;
     }
 }

@@ -22,4 +22,6 @@ import io.entgra.device.mgt.core.device.mgt.core.config.keymanager.KeyManagerCon
 public interface ExServerUtilityService {
 
     KeyManagerConfigurations getKeyManagerConfigurations();
+
+    TrustedMqttCredentials getTrustedMqttCredentials();
 }
